@@ -1,0 +1,14 @@
+# 作用：限制进入应用镜像的构建上下文。
+# 流程：过滤凭证、缓存、源码挂载目录与执行产物 → 仅复制服务文件。
+.env
+.env.*
+!.env.example
+.venv
+.git
+.idea
+**/__pycache__
+.pytest_cache
+.ruff_cache
+artifacts
+projects
+logs

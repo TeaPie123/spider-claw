@@ -1,0 +1,69 @@
+# 作用：运行统一任务服务及其数据库、队列和指标采集。
+# 流程：启动依赖 → API 入队 → Worker 通过 Docker daemon 执行任务 → 共享产物供 API 下载。
+services:
+  web:
+    build: .
+    env_file: .env
+    environment:
+      SYC_ARTIFACT_ROOT: /data/artifacts
+    ports: ["18700:8000"]
+    volumes: ["artifacts:/data/artifacts:ro"]
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    restart: unless-stopped
+  worker:
+    build: .
+    command: ["python", "-m", "scripts.worker"]
+    env_file: .env
+    environment:
+      SYC_ARTIFACT_ROOT: /data/artifacts
+    volumes:
+      - "artifacts:/data/artifacts"
+      - "${SYC_PROJECTS_DIR:-./projects}:/projects:ro"
+      - "/var/run/docker.sock:/var/run/docker.sock"
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    restart: unless-stopped
+  feishu:
+    build: .
+    profiles: ["feishu"]
+    command: ["python", "-m", "channels.feishu_ws"]
+    env_file: .env
+    environment:
+      SYC_API_BASE_URL: http://web:8000
+    depends_on: [web]
+    restart: unless-stopped
+  postgres:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: syc
+      POSTGRES_PASSWORD: ${SYC_PG_PASSWORD:?set SYC_PG_PASSWORD}
+      POSTGRES_DB: shanyang
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U syc -d shanyang"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes: ["redisdata:/data"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+  prometheus:
+    image: prom/prometheus:latest
+    volumes: ["./deploy/prometheus.yml:/etc/prometheus/prometheus.yml:ro"]
+    ports: ["127.0.0.1:19090:9090"]
+    restart: unless-stopped
+volumes:
+  artifacts:
+  pgdata:
+  redisdata:
